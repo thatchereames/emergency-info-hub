@@ -25,7 +25,7 @@ export default function HubPage() {
   const items: EmergencyInfo[] = emergencyData;
 
   return (
-    <main className="min-h-screen bg-zinc-50 dark:bg-zinc-950 px-4 py-12 pb-28">
+    <main className="min-h-screen bg-zinc-50 dark:bg-zinc-950 px-4 py-12">
       <div className="max-w-2xl mx-auto space-y-8">
         <header>
           <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">

@@ -27,7 +27,8 @@ export default function Map({ center, label }: Props) {
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const map = L.map(containerRef.current).setView(center, 13);
+    const map = L.map(containerRef.current, { zoomControl: false }).setView(center, 13);
+    L.control.zoom({ position: "bottomright" }).addTo(map);
     mapRef.current = map;
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -55,5 +56,9 @@ export default function Map({ center, label }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [center[0], center[1], label]);
 
-  return <div ref={containerRef} style={{ height: "500px", width: "100%", zIndex: "2" }} />;
+  return (
+    <div style={{ height: "100%", width: "100%", minHeight: "50vh", isolation: "isolate" }}>
+      <div ref={containerRef} style={{ height: "100%", width: "100%" }} />
+    </div>
+  );
 }

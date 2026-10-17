@@ -30,8 +30,6 @@ export default function MapClient() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    // setLocation is only ever called inside async callbacks — never synchronously
-    // in the effect body — which satisfies the react-hooks/set-state-in-effect rule.
     if (!navigator.geolocation) {
       Promise.resolve().then(() =>
         setLocation({ status: "ready", coords: DEFAULT_COORDS, label: DEFAULT_LABEL })
@@ -86,41 +84,46 @@ export default function MapClient() {
     location.status === "ready";
 
   return (
-    <div className="space-y-3">
+    // Fill the parent container completely; search bar floats above the map
+    <div className="relative w-full h-full" style={{ minHeight: "300px" }}>
+      {/* Map fills the whole box */}
+      {location.status === "loading" && (
+        <div className="absolute inset-0 flex items-center justify-center bg-zinc-100 dark:bg-zinc-800 z-10">
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">Locating…</p>
+        </div>
+      )}
+      {location.status === "ready" && (
+        <Map center={location.coords} label={location.label} />
+      )}
+
+      {/* Search bar overlaid at the top */}
       {showSearchBox && (
-        <form onSubmit={handleSearch} className="flex gap-2 px-1">
+        <form
+          onSubmit={handleSearch}
+          className="absolute top-3 left-3 right-3 z-20 flex gap-2"
+        >
           <input
             ref={inputRef}
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Enter a city, address, or place…"
-            className="flex-1 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-500"
+            placeholder="Search a place…"
+            className="flex-1 min-w-0 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-sm px-3 py-2 text-sm text-zinc-900 dark:text-zinc-50 placeholder:text-zinc-400 shadow focus:outline-none focus:ring-2 focus:ring-zinc-500"
           />
           <button
             type="submit"
-            className="rounded-lg bg-zinc-900 dark:bg-zinc-50 px-4 py-2 text-sm font-medium text-white dark:text-zinc-900 hover:opacity-80 transition-opacity"
+            className="shrink-0 rounded-lg bg-zinc-900 dark:bg-zinc-50 px-4 py-2 text-sm font-medium text-white dark:text-zinc-900 shadow hover:opacity-80 transition-opacity"
           >
-            Search
+            Go
           </button>
         </form>
       )}
 
-      {location.status === "loading" && (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 px-1">Locating…</p>
-      )}
-
+      {/* Error message */}
       {location.status === "error" && location.message && (
-        <p className="text-sm text-red-600 dark:text-red-400 px-1">{location.message}</p>
-      )}
-
-      {location.status === "ready" && (
-        <>
-          <p className="text-xs text-zinc-400 dark:text-zinc-500 px-1 truncate">
-            {location.label}
-          </p>
-          <Map center={location.coords} label={location.label} />
-        </>
+        <p className="absolute bottom-16 left-3 right-3 z-20 rounded-lg bg-red-50 dark:bg-red-900/40 border border-red-200 dark:border-red-800 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+          {location.message}
+        </p>
       )}
     </div>
   );
