@@ -14,8 +14,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Emergency Info Hub",
+  title: "SignalHub",
   description: "Critical information and contacts for common emergency situations.",
+  icons: {
+    icon: "/signalalert.svg",
+    shortcut: "/signalalert.svg",
+    apple: "/signalalert.svg",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
