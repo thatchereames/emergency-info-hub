@@ -96,23 +96,34 @@ export default function MapClient() {
   const [activeCategory, setActiveCategory] = useState<string>("all");
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [stats, setStats] = useState({ total: 0, critical: 0 });
+  const [isAggregating, setIsAggregating] = useState(false);
   const [, startTransition] = useTransition();
-
-
 
   useEffect(() => {
     Promise.resolve().then(() => locateUser(setLocation));
   }, []);
 
-  // Fetch live aggregated emergencies whenever user coordinates are ready
+  // Fetch live aggregated emergencies whenever target coordinates change (initial locate or alternate searched location)
   useEffect(() => {
     if (location.status !== "ready") return;
     coordsRef.current = location.coords;
 
+    let cancelled = false;
+    setIsAggregating(true);
+    setSelectedIncident(null);
+
     const [lat, lng] = location.coords;
-    fetch(`/api/emergency-info?lat=${lat}&lng=${lng}&radius=60`)
+    const params = new URLSearchParams({
+      lat: String(lat),
+      lng: String(lng),
+      radius: "60",
+      location: location.label,
+    });
+
+    fetch(`/api/emergency-info?${params.toString()}`)
       .then((res) => res.json())
       .then((data: { data: EmergencyInfo[]; meta: { total: number; criticalCount: number } }) => {
+        if (cancelled) return;
         if (Array.isArray(data.data)) {
           setIncidents(data.data);
           setStats({
@@ -121,7 +132,14 @@ export default function MapClient() {
           });
         }
       })
-      .catch((err) => console.error("Failed to load emergency data:", err));
+      .catch((err) => console.error("Failed to load emergency data:", err))
+      .finally(() => {
+        if (!cancelled) setIsAggregating(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [location]);
 
   function handleQueryChange(value: string) {
@@ -133,7 +151,7 @@ export default function MapClient() {
       return;
     }
     debounceRef.current = setTimeout(async () => {
-      const results = await fetchSuggestions(value.trim(), coordsRef.current);
+      const results = await fetchSuggestions(value.trim());
       setSuggestions(results);
       setShowSuggestions(results.length > 0);
     }, 300);
@@ -146,11 +164,25 @@ export default function MapClient() {
     setLocation({ status: "ready", coords: [s.lat, s.lng], label: s.name });
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     setShowSuggestions(false);
+
     if (suggestions.length > 0) {
       pickSuggestion(suggestions[0]);
+      return;
+    }
+
+    const trimmed = query.trim();
+    if (!trimmed) return;
+
+    setIsAggregating(true);
+    const results = await fetchSuggestions(trimmed);
+    if (results.length > 0) {
+      pickSuggestion(results[0]);
+    } else {
+      setIsAggregating(false);
     }
   }
 
@@ -256,13 +288,24 @@ export default function MapClient() {
           <div className="flex flex-wrap items-center justify-between gap-1.5 pointer-events-auto">
             {/* Live Stats Pill */}
             <div className="flex items-center gap-2 rounded-lg bg-white/90 dark:bg-zinc-900/90 backdrop-blur-md px-3 py-1.5 border border-zinc-200 dark:border-zinc-800 shadow-sm text-xs font-medium">
-              <span className="flex h-2 w-2 relative">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
-              </span>
-              <span className="text-zinc-800 dark:text-zinc-200">
-                {stats.total} incidents ({stats.critical} critical)
-              </span>
+              {isAggregating ? (
+                <>
+                  <span className="h-2.5 w-2.5 rounded-full border-2 border-red-500 border-t-transparent animate-spin" />
+                  <span className="text-zinc-700 dark:text-zinc-300">
+                    Aggregating area feeds…
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="flex h-2 w-2 relative">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+                  </span>
+                  <span className="text-zinc-800 dark:text-zinc-200">
+                    {stats.total} incidents ({stats.critical} critical)
+                  </span>
+                </>
+              )}
             </div>
 
             {/* Heatmap Layer Toggle */}

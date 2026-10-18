@@ -132,12 +132,13 @@ export default function Map({
     const userMarker = userMarkerRef.current;
     if (!map || !userMarker) return;
 
-    map.setView(center, map.getZoom() || 13);
+    map.flyTo(center, 12, { duration: 0.85 });
     userMarker.setLatLng(center);
     userMarker.setPopupContent(
-      `<strong>Your Location</strong><br/><span style="font-size:12px;color:#555;">${label}</span>`
+      `<strong>Selected Area</strong><br/><span style="font-size:12px;color:#555;">${label}</span>`
     );
-  }, [center, label]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [center[0], center[1], label]);
 
   // Render heatmap impact zones and incident markers when incidents or showHeatmap changes
   useEffect(() => {

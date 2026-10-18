@@ -43,6 +43,7 @@ export async function GET(request: NextRequest) {
   const aggregated = await aggregateEmergencies({
     lat,
     lng,
+    locationLabel: resolvedLocationName ?? locationText,
     radiusMiles,
     type,
     severity,
@@ -55,7 +56,7 @@ export async function GET(request: NextRequest) {
     ...aggregated,
     meta: {
       ...aggregated.meta,
-      resolvedLocationName: resolvedLocationName ?? null,
+      resolvedLocationName: resolvedLocationName ?? locationText ?? null,
     },
   });
 }
