@@ -1,74 +1,64 @@
 import { NextRequest } from "next/server";
 import {
-  addRuntimeIncident,
-  aggregateEmergencies,
-  geocodeLocationQuery,
-} from "@/lib/aggregator";
-import type { EmergencySeverity } from "@/lib/emergency-data";
+  InquiryType,
+  runRetellEmergencyProcess,
+} from "@/lib/retell-agent-service";
 
-type RetellToolPayload = {
+type RawRetellArgs = {
+  // Caller's location
+  caller_location?: string;
+  callerLocation?: string;
+  location?: string;
+  lat?: number;
+  lng?: number;
+
+  // Whether calling about a specific event or general area emergencies
+  inquiry_type?: InquiryType | string;
+  inquiryType?: InquiryType | string;
+  is_specific_event?: boolean;
+  isSpecificEvent?: boolean;
+
+  // The specific event the caller wants to know about
+  specific_event?: string;
+  specificEvent?: string;
+  event?: string;
+  query?: string;
+  emergency_type?: string;
+
+  // Optional search radius
+  radius_miles?: number;
+  radiusMiles?: number;
+  action?: string;
+};
+
+type RetellWebhookRequest = RawRetellArgs & {
   name?: string;
   call?: {
     call_id?: string;
     from_number?: string;
+    to_number?: string;
   };
-  args?: {
-    action?: "lookup" | "report";
-    location?: string;
-    lat?: number;
-    lng?: number;
-    radius_miles?: number;
-    emergency_type?: string;
-    severity?: EmergencySeverity;
-    query?: string;
-    title?: string;
-    description?: string;
-  };
-  // Support flat args in case custom tool sends parameters at top-level
-  action?: "lookup" | "report";
-  location?: string;
-  lat?: number;
-  lng?: number;
-  radius_miles?: number;
-  emergency_type?: string;
-  severity?: EmergencySeverity;
-  query?: string;
-  title?: string;
-  description?: string;
+  args?: RawRetellArgs;
 };
 
 /**
  * POST /api/retell/tool
- * Custom Function / Tool Calling endpoint for Retell AI Voice Agents.
- * Allows the voice agent to:
- *  1) Query live emergencies near a caller's spoken location/ZIP/landmark (`lookup_emergencies`)
- *  2) Log a new citizen hazard report into the live aggregator & heatmap (`report_incident`)
+ * Callable by Retell AI Voice Agents (Custom Function / Tool Call).
+ * Accepts:
+ *  - caller_location (string): The caller's location
+ *  - inquiry_type ("specific" | "general") or is_specific_event (boolean)
+ *  - specific_event (string, optional): The specific emergency event the caller is asking about
+ * Runs the live emergency aggregation process for that location and returns the relevant
+ * events + spoken script (`result`) for the voice agent to read out to the caller.
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json().catch(() => ({}))) as RetellToolPayload;
-    const params = body.args ?? body;
-    const toolName = (body.name ?? params.action ?? "lookup").toLowerCase();
+    const body = (await request.json().catch(() => ({}))) as RetellWebhookRequest;
+    const params: RawRetellArgs = body.args ?? body;
+    const toolName = (body.name ?? params.action ?? "").toLowerCase();
 
-    // Resolve spoken location string (e.g. "Santa Monica", "Exposition Park", "90007") if lat/lng not provided
-    let lat = typeof params.lat === "number" ? params.lat : undefined;
-    let lng = typeof params.lng === "number" ? params.lng : undefined;
-    let resolvedLocation = params.location;
-
-    if ((lat === undefined || lng === undefined) && params.location) {
-      const geo = await geocodeLocationQuery(params.location);
-      if (geo) {
-        lat = geo.lat;
-        lng = geo.lng;
-        resolvedLocation = geo.displayName;
-      }
-    }
-
-    // Handle citizen hazard report submitted during a phone call
-    if (
-      toolName.includes("report") ||
-      params.action === "report"
-    ) {
+    // Guardrail if caller tries to report a new incident instead of requesting info
+    if (toolName.includes("report") || params.action === "report") {
       return Response.json({
         result:
           "This service is strictly for emergency information distribution and cannot dispatch emergency units. If you are witnessing or experiencing an active incident, please hang up immediately and dial 911 so Emergency Medical Services and first responders can be dispatched.",
@@ -76,42 +66,45 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Default: Lookup active emergencies for the caller
-    const aggregated = await aggregateEmergencies({
-      lat: lat ?? 34.0224,
-      lng: lng ?? -118.2851,
-      radiusMiles: params.radius_miles ?? 35,
-      type: params.emergency_type,
-      severity: params.severity,
-      query: params.query,
+    const callerLocation =
+      params.caller_location ??
+      params.callerLocation ??
+      params.location;
+
+    const inquiryType =
+      params.inquiry_type ??
+      params.inquiryType;
+
+    const isSpecificEvent =
+      typeof params.is_specific_event === "boolean"
+        ? params.is_specific_event
+        : params.isSpecificEvent;
+
+    const specificEvent =
+      params.specific_event ??
+      params.specificEvent ??
+      params.event ??
+      params.query ??
+      params.emergency_type;
+
+    const radiusMiles = params.radius_miles ?? params.radiusMiles;
+
+    const responsePayload = await runRetellEmergencyProcess({
+      callerLocation,
+      lat: params.lat,
+      lng: params.lng,
+      inquiryType,
+      isSpecificEvent,
+      specificEvent,
+      radiusMiles,
     });
 
-    const topIncidents = aggregated.data.slice(0, 4).map((item) => ({
-      id: item.id,
-      title: item.title,
-      type: item.type,
-      severity: item.severity,
-      distanceMiles: item.distanceMiles,
-      isWithinImpactRadius: item.isWithinImpactRadius,
-      locationName: item.locationName,
-      voiceSummary: item.voiceSummary,
-      instructions: item.instructions,
-      contact: item.contact,
-      updatedAt: item.updatedAt,
-    }));
-
-    return Response.json({
-      result: aggregated.voiceBriefing,
-      resolved_location: resolvedLocation ?? "Los Angeles / USC Area",
-      total_matches: aggregated.meta.total,
-      critical_count: aggregated.meta.criticalCount,
-      incidents: topIncidents,
-    });
+    return Response.json(responsePayload);
   } catch (err) {
     return Response.json(
       {
         result:
-          "I'm having trouble reaching the live emergency feed right now. If you are in immediate danger, please dial 911.",
+          "I'm having trouble reaching the live emergency aggregation feed right now. If you are in immediate danger, please hang up and dial 911.",
         error: err instanceof Error ? err.message : "Tool execution failed",
       },
       { status: 500 }
@@ -121,52 +114,63 @@ export async function POST(request: NextRequest) {
 
 /**
  * GET /api/retell/tool
- * Returns the Retell AI Custom Tool definition schema for easy copy-pasting into the Retell dashboard.
+ * - If query params (`caller_location`, `inquiry_type`, `specific_event`) are provided, runs the live aggregation process for easy testing.
+ * - Otherwise returns the Retell AI Custom Function JSON schema to paste into the Retell dashboard.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const { searchParams } = request.nextUrl;
+  const callerLocation =
+    searchParams.get("caller_location") ?? searchParams.get("location");
+  const inquiryType = searchParams.get("inquiry_type") ?? undefined;
+  const specificEvent =
+    searchParams.get("specific_event") ?? searchParams.get("query") ?? undefined;
+
+  if (callerLocation || inquiryType || specificEvent) {
+    const result = await runRetellEmergencyProcess({
+      callerLocation: callerLocation ?? undefined,
+      inquiryType,
+      specificEvent,
+      isSpecificEvent:
+        searchParams.get("is_specific_event") === "true"
+          ? true
+          : searchParams.get("is_specific_event") === "false"
+            ? false
+            : undefined,
+    });
+    return Response.json(result);
+  }
+
   return Response.json({
     endpoint: "/api/retell/tool",
     description:
-      "Retell AI Custom Tool (Function Calling) endpoint for looking up live emergencies by spoken location or logging new citizen reports.",
+      "Retell AI Custom Tool (Function Calling) endpoint. Pass caller_location, inquiry_type ('specific' | 'general'), and specific_event to aggregate and return relevant emergency events for the voice agent to read out.",
     retellCustomToolSchema: {
       type: "custom",
-      name: "lookup_local_emergencies",
+      name: "get_emergency_information",
       description:
-        "Look up active local emergencies, evacuations, power outages, fires, earthquakes, and weather alerts near a caller's location or by emergency type.",
+        "Aggregates live emergency data for the caller's location and returns relevant events and safety instructions to read out to the caller.",
       parameters: {
         type: "object",
         properties: {
-          location: {
+          caller_location: {
             type: "string",
             description:
-              "City, neighborhood, street intersection, landmark, or ZIP code mentioned by the caller (e.g. 'Exposition Park', 'Hollywood Hills', '90007').",
+              "The caller's current location, city, neighborhood, street intersection, landmark, or ZIP code (e.g. 'Exposition Park', 'Hollywood Hills', 'Seattle, WA', '90007').",
           },
-          emergency_type: {
+          inquiry_type: {
             type: "string",
-            enum: [
-              "fire",
-              "weather",
-              "earthquake",
-              "infrastructure",
-              "public_safety",
-              "medical",
-              "natural_disaster",
-            ],
-            description: "Optional filter by category of emergency.",
+            enum: ["general", "specific"],
+            description:
+              "Set to 'specific' if the caller is asking about a particular emergency event, or 'general' if they want an overview of active emergencies in their area.",
           },
-          query: {
+          specific_event: {
             type: "string",
             description:
-              "Optional keyword search (e.g. 'Figueroa', 'power outage', 'flooding').",
-          },
-          radius_miles: {
-            type: "number",
-            description: "Search radius in miles (default 35).",
+              "If inquiry_type is 'specific', the specific emergency event, hazard type, or location the caller is asking about (e.g. 'brush fire in Hollywood Hills', 'power outage', 'Figueroa fire', 'earthquake').",
           },
         },
-        required: [],
+        required: ["caller_location", "inquiry_type"],
       },
     },
   });
 }
-
