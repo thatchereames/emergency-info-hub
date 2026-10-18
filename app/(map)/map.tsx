@@ -16,10 +16,10 @@ const defaultIcon = L.icon({
 
 type Props = {
   center: [number, number];
-  label: string;
+  label?: string;
 };
 
-export default function Map({ center, label }: Props) {
+export default function Map({ center }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
 
@@ -35,7 +35,7 @@ export default function Map({ center, label }: Props) {
       attribution: "&copy; OpenStreetMap contributors",
     }).addTo(map);
 
-    L.marker(center, { icon: defaultIcon }).addTo(map).bindPopup(label).openPopup();
+    L.marker(center, { icon: defaultIcon }).addTo(map);
 
     return () => {
       map.remove();
@@ -52,9 +52,9 @@ export default function Map({ center, label }: Props) {
     map.eachLayer((layer) => {
       if (layer instanceof L.Marker) map.removeLayer(layer);
     });
-    L.marker(center, { icon: defaultIcon }).addTo(map).bindPopup(label).openPopup();
+    L.marker(center, { icon: defaultIcon }).addTo(map);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [center[0], center[1], label]);
+  }, [center[0], center[1]]);
 
   return (
     <div style={{ height: "100%", width: "100%", minHeight: "50vh", isolation: "isolate" }}>
